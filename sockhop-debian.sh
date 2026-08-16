@@ -740,7 +740,7 @@ self_test() {
     dns_ip="$(probe_dns 15)"
     if [[ -z "$dns_ip" ]]; then
         warn "DNS resolution through the tunnel failed."
-        warn "Most SOCKS5 endpoints refuse UDP ASSOCIATE. Retry with: SOCKHOP_DNS=tcp $APP restart"
+        warn "Most SOCKS5 endpoints refuse UDP ASSOCIATE. Retry with: $APP restart --dns tcp"
     else
         ok "DNS through the tunnel works"
     fi
@@ -893,7 +893,7 @@ cmd_test() {
     if [[ -n "$dns_ip" ]]; then
         ok "DNS         : working"
     else
-        warn "DNS         : failing (try SOCKHOP_DNS=tcp $APP restart)"
+        warn "DNS         : failing (try: $APP restart --dns tcp)"
     fi
     return 0
 }
@@ -968,6 +968,16 @@ Usage:
   ${APP} uninstall        remove the unit, config and state
   ${APP} logs [-f]        show the tun2socks log
 
+Options:
+  --dns tunnel|tcp|keep   DNS strategy for this run. Prefer this over the
+                          environment variable: 'SOCKHOP_DNS=tcp sudo ...'
+                          silently loses the value to sudo's env_reset, the
+                          variable has to come after sudo.
+                            tunnel  lookups travel the tunnel over UDP
+                            tcp     glibc 'options use-vc', for the many
+                                    SOCKS5 nodes that refuse UDP ASSOCIATE
+                            keep    do not touch DNS at all
+
 Accepted LINK formats:
   socks5://user:pass@host:port        socks5h://user:pass@host:port
   socks://<base64(user:pass)>@host:port
@@ -990,19 +1000,49 @@ EOF
 }
 
 main() {
-    local cmd="${1:-}"
-    if [[ $# -gt 0 ]]; then
+    local cmd="" arg=""
+
+    # Options are scanned out of the argument list wherever they appear, so
+    # `restart --dns tcp` works. A command-line flag is deliberately offered
+    # alongside the environment variables: `SOCKHOP_DNS=x sudo ...` silently
+    # loses the variable to sudo's env_reset, which is a trap worth closing.
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --dns=*)
+                DNS_MODE="${1#*=}"
+                ;;
+            --dns)
+                if [[ $# -lt 2 ]]; then
+                    die "--dns needs a value: tunnel, tcp or keep"
+                fi
+                DNS_MODE="$2"
+                shift
+                ;;
+            *)
+                if [[ -z "$cmd" ]]; then
+                    cmd="$1"
+                elif [[ -z "$arg" ]]; then
+                    arg="$1"
+                fi
+                ;;
+        esac
         shift
-    fi
+    done
+
+    case "$DNS_MODE" in
+        tunnel|tcp|keep) : ;;
+        *) die "invalid DNS mode '${DNS_MODE}' (expected tunnel, tcp or keep)" ;;
+    esac
+
     case "$cmd" in
-        start)     cmd_start "${1:-}" ;;
+        start)     cmd_start "$arg" ;;
         stop)      cmd_stop ;;
-        restart)   cmd_stop || true; cmd_start "${1:-}" ;;
+        restart)   cmd_stop || true; cmd_start "$arg" ;;
         status)    cmd_status ;;
         test)      cmd_test ;;
-        install)   cmd_install "${1:-}" ;;
+        install)   cmd_install "$arg" ;;
         uninstall) cmd_uninstall ;;
-        logs)      cmd_logs "${1:-}" ;;
+        logs)      cmd_logs "$arg" ;;
         ""|-h|--help|help) usage ;;
         *) die "unknown command '${cmd}'; run '${APP} --help'" ;;
     esac

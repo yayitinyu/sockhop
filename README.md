@@ -68,11 +68,11 @@ sockhop status
 tun2socks 从 GitHub Releases 下载。拉不动时换镜像前缀，或直接指定已有二进制：
 
 ```bash
-SOCKHOP_MIRROR=https://ghproxy.example sudo -E ./sockhop.sh start 'socks5://...'
-SOCKHOP_BINARY=/root/tun2socks     sudo -E ./sockhop.sh start 'socks5://...'
+sudo env SOCKHOP_MIRROR=https://ghproxy.example ./sockhop.sh start 'socks5://...'
+sudo env SOCKHOP_BINARY=/root/tun2socks         ./sockhop.sh start 'socks5://...'
 ```
 
-注意 `sudo -E`，否则环境变量传不进去。
+这里用 `sudo env`，是因为 `VAR=值 sudo ...` 会被 sudo 的 `env_reset` 吃掉（见上方提示）。
 
 **动路由之前会先用 `curl --proxy` 预检节点。** 密码错或节点不通时直接报错退出，不会对系统做任何改动。
 
@@ -106,13 +106,17 @@ host:port                                  # 无认证
 | `uninstall` | 移除服务、配置与状态 |
 | `logs [-f]` | 查看 tun2socks 日志 |
 
+选项 `--dns tunnel|tcp|keep` 可加在任意位置，例如 `sockhop restart --dns tcp`。
+
 开机自启：Debian 为 systemd unit（`systemctl start sockhop`），Alpine 为 OpenRC（`rc-service sockhop start`）。
 
 ## 环境变量
 
+> **和 sudo 一起用时注意**：`SOCKHOP_DNS=tcp sudo ./sockhop.sh restart` **不生效**。变量是设给 sudo 进程的，而 sudo 默认 `env_reset` 会把它丢掉，脚本拿到的仍是默认值。写成 `sudo env VAR=值 ./sockhop.sh ...` 最稳妥。DNS 因此额外提供了 `--dns` 参数，不受此影响。
+
 | 变量 | 默认 | 说明 |
 |---|---|---|
-| `SOCKHOP_DNS` | `tunnel` | `tunnel` / `tcp` / `keep`，见下节 |
+| `SOCKHOP_DNS` | `tunnel` | `tunnel` / `tcp` / `keep`，见下节。等价于 `--dns` |
 | `SOCKHOP_DNS_SERVERS` | `1.1.1.1 8.8.8.8` | |
 | `SOCKHOP_BLOCK_V6` | `1` | 阻断 IPv6 出站防泄露 |
 | `SOCKHOP_BYPASS` | — | 额外不走隧道的 CIDR，空格分隔 |
@@ -129,7 +133,7 @@ host:port                                  # 无认证
 `start` 结束时的自检会分别探测两者并明确区分这两种故障。看到 `DNS resolution through the tunnel failed` 就切 TCP 模式：
 
 ```bash
-SOCKHOP_DNS=tcp sudo ./sockhop-debian.sh restart
+sudo ./sockhop.sh restart --dns tcp
 ```
 
 两个发行版的 `tcp` 模式实现不同：
@@ -168,7 +172,7 @@ Debian 上若 systemd-resolved 在运行，脚本用 `resolvectl` 在 TUN 链路
 | 现象 | 处理 |
 |---|---|
 | 出口 IP 没变 | `sockhop status` 看 tun2socks 是否在跑、规则是否存在 |
-| TCP 通但域名解析失败 | 见上节，切 `SOCKHOP_DNS=tcp` |
+| TCP 通但域名解析失败 | 见上节，`sockhop restart --dns tcp` |
 | `download failed` | 设 `SOCKHOP_MIRROR`，或用 `SOCKHOP_BINARY` 指向本地二进制 |
 | `/dev/net/tun is missing` | 宿主 `modprobe tun`；容器补 `--device /dev/net/tun` |
 | `'ip rule' is unavailable`（Alpine） | `apk add iproute2`，busybox 的 `ip` 不含策略路由 |
